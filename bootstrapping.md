@@ -18,6 +18,7 @@ library(tidyverse)
 
 ``` r
 library(modelr)
+library(p8105.datasets)
 
 knitr::opts_chunk$set(
   fig.width = 6,
@@ -98,8 +99,8 @@ lm(y ~ x, data = sim_df_const) %>%  broom::tidy()
     ## # A tibble: 2 x 5
     ##   term        estimate std.error statistic   p.value
     ##   <chr>          <dbl>     <dbl>     <dbl>     <dbl>
-    ## 1 (Intercept)     2.02    0.0845      23.9 2.09e- 66
-    ## 2 x               2.98    0.0604      49.4 2.61e-130
+    ## 1 (Intercept)     1.85    0.0948      19.5 4.04e- 52
+    ## 2 x               3.12    0.0664      47.0 1.72e-125
 
 ``` r
 lm(y ~ x, data = sim_df_nonconst) %>%  broom::tidy()
@@ -108,8 +109,8 @@ lm(y ~ x, data = sim_df_nonconst) %>%  broom::tidy()
     ## # A tibble: 2 x 5
     ##   term        estimate std.error statistic   p.value
     ##   <chr>          <dbl>     <dbl>     <dbl>     <dbl>
-    ## 1 (Intercept)     1.99    0.0857      23.2 3.41e- 64
-    ## 2 x               3.00    0.0613      48.9 2.00e-129
+    ## 1 (Intercept)     2.09    0.102       20.6 1.22e- 55
+    ## 2 x               2.98    0.0711      41.9 1.88e-114
 
 Step 2 - bootstrap \#\# Draw one bootstrap sample
 
@@ -147,8 +148,8 @@ boot_sample(sim_df_nonconst) %>%
     ## # A tibble: 2 x 5
     ##   term        estimate std.error statistic   p.value
     ##   <chr>          <dbl>     <dbl>     <dbl>     <dbl>
-    ## 1 (Intercept)     1.94    0.0823      23.6 2.10e- 65
-    ## 2 x               3.02    0.0603      50.1 8.15e-132
+    ## 1 (Intercept)     2.12    0.0976      21.7 2.41e- 59
+    ## 2 x               2.92    0.0671      43.6 3.09e-118
 
 ## Many samples and analysis
 
@@ -189,8 +190,8 @@ boot_results %>%
     ## # A tibble: 2 x 3
     ##   term        mean_est sd_est
     ##   <chr>          <dbl>  <dbl>
-    ## 1 (Intercept)     1.99 0.0591
-    ## 2 x               3.00 0.0811
+    ## 1 (Intercept)     2.09 0.0635
+    ## 2 x               2.98 0.0878
 
 look at the distributions
 
@@ -219,8 +220,8 @@ boot_results %>%
     ## # A tibble: 2 x 3
     ##   term        ci_lower ci_upper
     ##   <chr>          <dbl>    <dbl>
-    ## 1 (Intercept)     1.87     2.10
-    ## 2 x               2.85     3.16
+    ## 1 (Intercept)     1.97     2.22
+    ## 2 x               2.81     3.15
 
 ## Bootstrap using modelr package
 
@@ -247,5 +248,84 @@ sim_df_nonconst %>%
     ## # A tibble: 2 x 3
     ##   term        ci_lower ci_upper
     ##   <chr>          <dbl>    <dbl>
-    ## 1 (Intercept)     1.88     2.10
-    ## 2 x               2.83     3.16
+    ## 1 (Intercept)     1.97     2.22
+    ## 2 x               2.81     3.14
+
+## Revisit nyc airbnb
+
+``` r
+data("nyc_airbnb")
+
+nyc_airbnb = 
+  nyc_airbnb %>% 
+  mutate(stars = review_scores_location / 2) %>% 
+  rename(
+    borough = neighbourhood_group,
+    neighbourhood = neighbourhood) %>% 
+  filter(borough != "Staten Island") %>% 
+  select(price, stars, borough, neighbourhood, room_type) 
+```
+
+``` r
+nyc_airbnb %>% 
+  ggplot(aes( x = stars, y = price)) +
+  geom_point()
+```
+
+    ## Warning: Removed 9962 rows containing missing values (geom_point).
+
+<img src="bootstrapping_files/figure-gfm/unnamed-chunk-15-1.png" width="90%" />
+
+``` r
+airbnb_boot_results =
+  nyc_airbnb %>% 
+  filter(borough == "Manhattan") %>% 
+  drop_na(stars) %>% 
+  bootstrap(1000, id = "strap_number") %>% 
+    mutate(
+    models = map(.x = strap, ~lm(price ~ stars, data = .x)),
+    results = map(models, broom::tidy)
+  ) %>% 
+  select(strap_number, results) %>% 
+  unnest(results)
+
+airbnb_boot_results %>% 
+  group_by(term) %>% 
+  summarize(
+    mean_est = mean(estimate),
+    sd_est = sd(estimate)
+  )
+```
+
+    ## `summarise()` ungrouping output (override with `.groups` argument)
+
+    ## # A tibble: 2 x 3
+    ##   term        mean_est sd_est
+    ##   <chr>          <dbl>  <dbl>
+    ## 1 (Intercept)    -33.5  32.4 
+    ## 2 stars           43.1   6.57
+
+compare this to `lm`
+
+``` r
+nyc_airbnb %>% 
+  filter(borough == "Manhattan") %>% 
+  drop_na(stars) %>% 
+  lm(price ~ stars, data = .) %>% 
+  broom::tidy()
+```
+
+    ## # A tibble: 2 x 5
+    ##   term        estimate std.error statistic  p.value
+    ##   <chr>          <dbl>     <dbl>     <dbl>    <dbl>
+    ## 1 (Intercept)    -34.3     22.9      -1.50 1.35e- 1
+    ## 2 stars           43.3      4.78      9.07 1.39e-19
+
+``` r
+airbnb_boot_results %>% 
+  filter(term == "stars") %>% 
+  ggplot(aes(x = estimate)) +
+  geom_density()
+```
+
+<img src="bootstrapping_files/figure-gfm/unnamed-chunk-18-1.png" width="90%" />
